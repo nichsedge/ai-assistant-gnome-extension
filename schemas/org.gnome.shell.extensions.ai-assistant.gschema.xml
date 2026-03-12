@@ -41,5 +41,23 @@
       <summary>Global Shortcut</summary>
       <description>Shortcut to trigger the AI text processor.</description>
     </key>
+    <key name="temperature" type="d">
+      <default>0.3</default>
+      <range min="0.0" max="2.0"/>
+      <summary>Temperature</summary>
+      <description>Sampling temperature for the AI model (0.0 = deterministic, 2.0 = very random).</description>
+    </key>
+    <key name="max-tokens" type="i">
+      <default>0</default>
+      <range min="0" max="32768"/>
+      <summary>Max Tokens</summary>
+      <description>Maximum number of tokens in the AI response. 0 means no limit (use model default).</description>
+    </key>
+    <key name="request-timeout" type="i">
+      <default>30</default>
+      <range min="5" max="120"/>
+      <summary>Request Timeout (seconds)</summary>
+      <description>Timeout in seconds for API requests. Increase for slow models or large texts.</description>
+    </key>
   </schema>
 </schemalist>

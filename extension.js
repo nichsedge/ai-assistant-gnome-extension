@@ -34,7 +34,7 @@ export default class AIAssistantExtension extends Extension {
         );
 
         this._httpSession = new Soup.Session();
-        this._httpSession.timeout = 15;
+        this._httpSession.timeout = this._settings.get_int('request-timeout');
     }
 
     disable() {
@@ -53,7 +53,7 @@ export default class AIAssistantExtension extends Extension {
         const clipboard = St.Clipboard.get_default();
         clipboard.get_text(St.ClipboardType.CLIPBOARD, (clipboard, text) => {
             if (!text || text.trim() === '') {
-                Main.notify('AI Assistant', 'Clipboard is empty.');
+                Main.notify('AI Assistant', 'No text found in clipboard. Please copy some text first.');
                 return;
             }
 
@@ -84,6 +84,8 @@ export default class AIAssistantExtension extends Extension {
         const customInstruction = this._settings.get_string('custom-instruction') || 'Fix grammar.';
         const blockedWordsStr = this._settings.get_string('blocked-words') || '';
         const blockedWords = blockedWordsStr.split(',').map(w => w.trim()).filter(w => w);
+        const temperature = this._settings.get_double('temperature');
+        const maxTokens = this._settings.get_int('max-tokens');
 
         let systemPrompt = customInstruction;
         if (blockedWords.length > 0) {
@@ -98,7 +100,8 @@ export default class AIAssistantExtension extends Extension {
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: text }
             ],
-            temperature: 0.3
+            temperature: temperature,
+            max_tokens: maxTokens > 0 ? maxTokens : undefined,
         };
 
         const message = Soup.Message.new('POST', customUrl);
@@ -130,13 +133,19 @@ export default class AIAssistantExtension extends Extension {
             
             if (message.status_code === 200) {
                 const responseData = JSON.parse(responseStr);
-                const resultText = responseData.choices[0].message.content;
-                
+                const resultText = responseData?.choices?.[0]?.message?.content;
+
+                if (!resultText) {
+                    Main.notify('AI Assistant Error', 'Unexpected response format from API.');
+                    console.error('AIAssistant: Unexpected response:', responseStr);
+                    return;
+                }
+
                 // Write back to clipboard
                 const clipboard = St.Clipboard.get_default();
                 clipboard.set_text(St.ClipboardType.CLIPBOARD, resultText);
                 
-                Main.notify('AI Assistant', 'Text processed and copied to clipboard! (Ctrl+V to paste)');
+                Main.notify('AI Assistant', 'Done! Text copied to clipboard. (Ctrl+V to paste)');
             } else {
                 Main.notify('AI Assistant Error', `API Error: ${message.status_code}`);
                 console.error(`AIAssistant HTTP Error: ${responseStr}`);
