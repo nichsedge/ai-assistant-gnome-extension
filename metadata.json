@@ -1,0 +1,12 @@
+{
+  "name": "AI Text Assistant",
+  "description": "Customizable AI assistant for text (grammar, translation, etc.) with word blocking.",
+  "uuid": "ai-assistant@al-projects.gnome.org",
+  "shell-version": [
+    "45",
+    "46",
+    "47"
+  ],
+  "url": "https://github.com/al/ai-assistant",
+  "settings-schema": "org.gnome.shell.extensions.ai-assistant"
+}

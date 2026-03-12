@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.ai-assistant" path="/org/gnome/shell/extensions/ai-assistant/">
+    <key name="api-provider" type="s">
+      <default>"openai"</default>
+      <summary>API Provider</summary>
+      <description>The API provider (openai, openrouter, ollama)</description>
+    </key>
+    <key name="api-key" type="s">
+      <default>""</default>
+      <summary>API Key</summary>
+      <description>The API key to use for requests.</description>
+    </key>
+    <key name="api-base-url" type="s">
+      <default>"https://api.openai.com/v1"</default>
+      <summary>API Base URL</summary>
+      <description>The base URL of the API.</description>
+    </key>
+    <key name="api-model" type="s">
+      <default>"gpt-4o-mini"</default>
+      <summary>API Model</summary>
+      <description>The model to use.</description>
+    </key>
+    <key name="api-extra-headers" type="s">
+      <default>""</default>
+      <summary>Extra Headers (JSON)</summary>
+      <description>Extra JSON headers for requests (like OpenRouter needs).</description>
+    </key>
+    <key name="custom-instruction" type="s">
+      <default>"Fix any grammar or spelling mistakes in the following text. Do not provide any additional conversational text or explanations. Only provide the final text."</default>
+      <summary>Custom Instruction</summary>
+      <description>The prompt given to OpenAI.</description>
+    </key>
+    <key name="blocked-words" type="s">
+      <default>""</default>
+      <summary>Blocked Words</summary>
+      <description>Comma-separated list of words to block.</description>
+    </key>
+    <key name="shortcut" type="as">
+      <default><![CDATA[['<Super><Shift>g']]]></default>
+      <summary>Global Shortcut</summary>
+      <description>Shortcut to trigger the AI text processor.</description>
+    </key>
+  </schema>
+</schemalist>
