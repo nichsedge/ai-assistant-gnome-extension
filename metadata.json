@@ -5,7 +5,8 @@
   "shell-version": [
     "45",
     "46",
-    "47"
+    "47",
+    "50"
   ],
   "url": "https://github.com/nichsedge/ai-assistant-gnome-extension",
   "settings-schema": "org.gnome.shell.extensions.ai-assistant"

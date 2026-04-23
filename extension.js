@@ -7,8 +7,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
-
-
+import Clutter from 'gi://Clutter';
 
 export default class AIAssistantExtension extends Extension {
     enable() {
@@ -21,7 +20,13 @@ export default class AIAssistantExtension extends Extension {
             style_class: 'system-status-icon',
         });
         this._indicator.add_child(icon);
-        this._indicator.connect('button-press-event', () => this._processClipboard());
+        this._indicator.connect('button-press-event', (actor, event) => {
+            if (event.get_button() === Clutter.BUTTON_PRIMARY) {
+                this._processClipboard();
+                return Clutter.EVENT_STOP;
+            }
+            return Clutter.EVENT_PROPAGATE;
+        });
         Main.panel.addToStatusArea(this.uuid, this._indicator);
 
         // Setup global shortcut

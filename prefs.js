@@ -205,7 +205,8 @@ export default class AIAssistantPreferences extends ExtensionPreferences {
                 return Gdk.EVENT_STOP;
             }
 
-            const accel = Gtk.accelerator_name_with_keycode(null, keyval, keycode,  relevantMods);
+            const display = Gdk.Display.get_default();
+            const accel = Gtk.accelerator_name_with_keycode(display, keyval, keycode,  relevantMods);
             if (accel) {
                 window._settings.set_strv('shortcut', [accel]);
                 shortcutLabel.accelerator = accel;
