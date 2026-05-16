@@ -15,8 +15,12 @@ A customizable GNOME Shell extension that processes clipboard text using AI (Ope
 ## Installation
 
 ### Prerequisites
-- GNOME Shell version 45, 46, or 47.
-- An API Key from OpenAI, OR a running local instance of [Ollama](https://ollama.ai/).
+- GNOME Shell versions 45, 46, 47, 50.
+- One of:
+  - OpenAI API key
+  - OpenRouter API key
+  - Local [Ollama](https://ollama.ai/) server
+  - Custom OpenAI-compatible endpoint
 
 ### Manual Installation
 
@@ -37,6 +41,22 @@ A customizable GNOME Shell extension that processes clipboard text using AI (Ope
 2. **Select Text**: Highlight any text and copy it to your clipboard (`Ctrl+C`).
 3. **Trigger AI**: Press the global shortcut (default: `<Super><Shift>g`) or click the icon in your GNOME top panel.
 4. **Review & Copy**: A dialog will appear with the AI's response. Click **Copy & Close** to put the result in your clipboard!
+
+## Provider Setup Notes
+
+- **OpenAI**
+  - Base URL: `https://api.openai.com/v1`
+  - API key required.
+- **OpenRouter**
+  - Base URL: `https://openrouter.ai/api/v1`
+  - API key required.
+  - The extension automatically adds OpenRouter headers (`HTTP-Referer`, `X-OpenRouter-Title`) only for this provider.
+- **Ollama**
+  - Base URL: `http://localhost:11434/v1`
+  - API key not required.
+- **Custom**
+  - Use an OpenAI-compatible `/chat/completions` endpoint.
+  - Optional extra headers can be set in Preferences as JSON (must be a JSON object).
 
 ## Support & Contributing
 

@@ -98,6 +98,8 @@ class ResultDialog extends ModalDialog.ModalDialog {
 export default class AIAssistantExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
+        this._settingsSignals = [];
+        this._activeRequest = null;
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name, false);
         this._icon = new St.Icon({
             icon_name: 'accessories-text-editor-symbolic',
@@ -113,8 +115,8 @@ export default class AIAssistantExtension extends Extension {
         });
 
         this._buildMenu();
-        this._settings.connect('changed::presets-json', () => this._buildMenu());
-        this._settings.connect('changed::active-preset-index', () => this._buildMenu());
+        this._settingsSignals.push(this._settings.connect('changed::presets-json', () => this._buildMenu()));
+        this._settingsSignals.push(this._settings.connect('changed::active-preset-index', () => this._buildMenu()));
 
         Main.panel.addToStatusArea(this.uuid, this._indicator);
 
@@ -128,14 +130,22 @@ export default class AIAssistantExtension extends Extension {
 
         this._httpSession = new Soup.Session();
         this._httpSession.timeout = this._settings.get_int('request-timeout');
+        this._settingsSignals.push(this._settings.connect('changed::request-timeout', () => {
+            if (this._httpSession)
+                this._httpSession.timeout = this._settings.get_int('request-timeout');
+        }));
     }
 
     disable() {
+        this._cancelActiveRequest();
+        if (this._settings && this._settingsSignals)
+            this._settingsSignals.forEach(id => this._settings.disconnect(id));
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
         }
         Main.wm.removeKeybinding('shortcut');
+        this._settingsSignals = null;
         this._settings = null;
         this._httpSession = null;
     }
@@ -165,9 +175,38 @@ export default class AIAssistantExtension extends Extension {
     _getPresets() {
         try {
             const presets = JSON.parse(this._settings.get_string('presets-json'));
-            if (Array.isArray(presets) && presets.length > 0) return presets;
+            if (Array.isArray(presets)) {
+                const normalized = presets
+                    .filter(p => p && typeof p === 'object')
+                    .map((p, index) => ({
+                        name: typeof p.name === 'string' && p.name.trim() ? p.name : `Preset ${index + 1}`,
+                        instruction: typeof p.instruction === 'string' ? p.instruction : '',
+                    }));
+                if (normalized.length > 0)
+                    return normalized;
+            }
         } catch (e) {}
         return [{ name: 'Default', instruction: this._settings.get_string('custom-instruction') }];
+    }
+
+    _normalizePresetState() {
+        const presets = this._getPresets();
+        const activeIndex = this._settings.get_int('active-preset-index');
+        const clampedActiveIndex = Math.max(0, Math.min(activeIndex, presets.length - 1));
+        if (activeIndex !== clampedActiveIndex)
+            this._settings.set_int('active-preset-index', clampedActiveIndex);
+        this._settings.set_string('presets-json', JSON.stringify(presets));
+        return { presets, activeIndex: clampedActiveIndex };
+    }
+
+    _cancelActiveRequest() {
+        if (!this._activeRequest)
+            return;
+        this._activeRequest.cancelled = true;
+        if (this._activeRequest.cancellable)
+            this._activeRequest.cancellable.cancel();
+        this._activeRequest = null;
+        this._resetUI();
     }
 
     _processClipboard(specificPreset = null) {
@@ -197,10 +236,16 @@ export default class AIAssistantExtension extends Extension {
     async _callOpenAI(text, specificPreset = null) {
         let dialog;
         try {
+            this._cancelActiveRequest();
+            const cancellable = new Gio.Cancellable();
+            const requestState = { cancellable, cancelled: false };
+            this._activeRequest = requestState;
+
             const apiKey = this._settings.get_string('api-key');
             const apiProvider = this._settings.get_string('api-provider');
             if (!apiKey && apiProvider !== 'ollama') {
                 Main.notify('AI Assistant Error', `API Key is missing for ${apiProvider}.`);
+                this._activeRequest = null;
                 return;
             }
 
@@ -210,8 +255,7 @@ export default class AIAssistantExtension extends Extension {
             }
 
             const model = this._settings.get_string('api-model') || 'gpt-4o-mini';
-            const presets = this._getPresets();
-            const activeIndex = this._settings.get_int('active-preset-index');
+            const { presets, activeIndex } = this._normalizePresetState();
             const instruction = specificPreset ? specificPreset.instruction : (presets[activeIndex]?.instruction || this._settings.get_string('custom-instruction'));
 
             const blockedWordsStr = this._settings.get_string('blocked-words') || '';
@@ -255,17 +299,21 @@ export default class AIAssistantExtension extends Extension {
                     for (const [k, v] of Object.entries(extraHeaders)) message.request_headers.append(k, v);
                 } catch (e) {}
             }
-            message.request_headers.append('HTTP-Referer', 'https://github.com/nichsedge/ai-assistant-gnome-extension');
-            message.request_headers.append('X-OpenRouter-Title', 'GNOME AI Assistant');
+            if (apiProvider === 'openrouter') {
+                message.request_headers.append('HTTP-Referer', 'https://github.com/nichsedge/ai-assistant-gnome-extension');
+                message.request_headers.append('X-OpenRouter-Title', 'GNOME AI Assistant');
+            }
 
             const bytes = new GLib.Bytes(new TextEncoder().encode(JSON.stringify(requestBody)));
             message.set_request_body_from_bytes('application/json', bytes);
 
             const inputStream = await new Promise((resolve, reject) => {
-                this._httpSession.send_async(message, GLib.PRIORITY_DEFAULT, null, (s, res) => {
+                this._httpSession.send_async(message, GLib.PRIORITY_DEFAULT, cancellable, (s, res) => {
                     try { resolve(s.send_finish(res)); } catch (e) { reject(e); }
                 });
             });
+            if (requestState.cancelled || this._activeRequest !== requestState)
+                return;
 
             if (message.status_code !== 200) {
                 const errBytes = message.response_body.flatten().get_data();
@@ -282,7 +330,7 @@ export default class AIAssistantExtension extends Extension {
 
             while (!dialog || !dialog._destroyed) {
                 const [line, len] = await new Promise((resolve, reject) => {
-                    dataInputStream.read_line_async(GLib.PRIORITY_DEFAULT, null, (s, res) => {
+                    dataInputStream.read_line_async(GLib.PRIORITY_DEFAULT, cancellable, (s, res) => {
                         try { resolve(s.read_line_finish(res)); } catch (e) { reject(e); }
                     });
                 });
@@ -300,7 +348,10 @@ export default class AIAssistantExtension extends Extension {
                     } catch (e) {}
                 }
             }
+            if (requestState.cancelled || this._activeRequest !== requestState)
+                return;
             this._resetUI();
+            this._activeRequest = null;
             if (fullText) {
                 const clipboard = St.Clipboard.get_default();
                 clipboard.set_text(St.ClipboardType.CLIPBOARD, fullText);
@@ -311,6 +362,13 @@ export default class AIAssistantExtension extends Extension {
                 else Main.notify('AI Assistant Error', emptyMsg);
             }
         } catch (e) {
+            if (e instanceof GLib.Error && e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                return;
+            if (this._activeRequest && this._activeRequest.cancelled) {
+                this._activeRequest = null;
+                return;
+            }
+            this._activeRequest = null;
             this._resetUI();
             if (dialog && !dialog._destroyed) dialog.updateText(`Error: ${e.message}`);
             else Main.notify('AI Assistant Error', e.message);

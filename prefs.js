@@ -7,6 +7,36 @@ import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/
 export default class AIAssistantPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         window._settings = this.getSettings();
+        const defaultInstruction = window._settings.get_string('custom-instruction');
+        const normalizePresets = () => {
+            let presets = [];
+            try {
+                const parsed = JSON.parse(window._settings.get_string('presets-json'));
+                if (Array.isArray(parsed))
+                    presets = parsed;
+            } catch (e) {}
+
+            presets = presets
+                .filter(p => p && typeof p === 'object')
+                .map((p, index) => ({
+                    name: typeof p.name === 'string' && p.name.trim() ? p.name : `Preset ${index + 1}`,
+                    instruction: typeof p.instruction === 'string' ? p.instruction : '',
+                }));
+
+            if (presets.length === 0) {
+                presets = [{
+                    name: 'Default',
+                    instruction: defaultInstruction,
+                }];
+            }
+
+            const activeIndex = window._settings.get_int('active-preset-index');
+            const clamped = Math.max(0, Math.min(activeIndex, presets.length - 1));
+            if (clamped !== activeIndex)
+                window._settings.set_int('active-preset-index', clamped);
+            window._settings.set_string('presets-json', JSON.stringify(presets));
+            return presets;
+        };
 
         // ─── Presets Group ─────────────────────────────────────────────────────────
         const page = new Adw.PreferencesPage();
@@ -30,12 +60,7 @@ export default class AIAssistantPreferences extends ExtensionPreferences {
                 child = presetsList.get_first_child();
             }
 
-            let presets = [];
-            try {
-                presets = JSON.parse(window._settings.get_string('presets-json'));
-            } catch (e) {
-                presets = [];
-            }
+            let presets = normalizePresets();
 
             presets.forEach((preset, index) => {
                 const expRow = new Adw.ExpanderRow({
@@ -113,14 +138,16 @@ export default class AIAssistantPreferences extends ExtensionPreferences {
                     tooltip_text: 'Delete Preset',
                 });
                 deleteBtn.connect('clicked', () => {
-                    const currentActive = window._settings.get_int('active-preset-index');
-                    if (index === currentActive) {
-                        window._settings.set_int('active-preset-index', 0);
-                    } else if (index < currentActive) {
-                        window._settings.set_int('active-preset-index', currentActive - 1);
-                    }
-
                     presets.splice(index, 1);
+                    if (presets.length === 0) {
+                        presets = [{
+                            name: 'Default',
+                            instruction: defaultInstruction,
+                        }];
+                    }
+                    const currentActive = window._settings.get_int('active-preset-index');
+                    const nextActive = Math.max(0, Math.min(currentActive, presets.length - 1));
+                    window._settings.set_int('active-preset-index', nextActive);
                     window._settings.set_string('presets-json', JSON.stringify(presets));
                     refreshPresets();
                 });
@@ -178,6 +205,27 @@ export default class AIAssistantPreferences extends ExtensionPreferences {
 
         const headersRow = new Adw.EntryRow({ title: 'Extra Headers (JSON)', show_apply_button: true });
         window._settings.bind('api-extra-headers', headersRow, 'text', Gio.SettingsBindFlags.DEFAULT);
+        const validateHeadersJson = () => {
+            const raw = headersRow.text.trim();
+            if (!raw) {
+                headersRow.remove_css_class('error');
+                headersRow.tooltip_text = null;
+                return;
+            }
+
+            try {
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+                    throw new Error('Expected a JSON object of header key/value pairs');
+                headersRow.remove_css_class('error');
+                headersRow.tooltip_text = null;
+            } catch (e) {
+                headersRow.add_css_class('error');
+                headersRow.tooltip_text = `Invalid JSON: ${e.message}`;
+            }
+        };
+        headersRow.connect('notify::text', validateHeadersJson);
+        validateHeadersJson();
 
         providerRow.connect('notify::selected-item', () => {
             const selectedStr = providers[providerRow.selected];
