@@ -8,18 +8,102 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import Clutter from 'gi://Clutter';
+import GObject from 'gi://GObject';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
+
+const ResultDialog = GObject.registerClass(
+class ResultDialog extends ModalDialog.ModalDialog {
+    _init(text, callback, retryCallback = null) {
+        super._init();
+        this._destroyed = false;
+        this.connect('destroy', () => { this._destroyed = true; });
+
+        this._callback = callback;
+        this._retryCallback = retryCallback;
+
+        const content = new St.BoxLayout({
+            vertical: true,
+            style_class: 'ai-assistant-dialog-content',
+        });
+
+        const title = new St.Label({
+            text: 'AI Assistant Result',
+            style_class: 'ai-assistant-dialog-title',
+        });
+        content.add_child(title);
+
+        const scrollView = new St.ScrollView({
+            style_class: 'ai-assistant-dialog-scroll',
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+            height: 400,
+            width: 600,
+        });
+        content.add_child(scrollView);
+
+        this._label = new St.Label({
+            text: text,
+            style_class: 'ai-assistant-dialog-text',
+        });
+        this._label.clutter_text.line_wrap = true;
+        this._label.clutter_text.selectable = true;
+        scrollView.add_child(this._label);
+
+        this.contentLayout.add_child(content);
+
+        const buttons = [
+            {
+                label: 'Copy & Close',
+                action: () => {
+                    this._callback(this._label.text);
+                    this.close();
+                },
+                key: Clutter.KEY_Return,
+            },
+            {
+                label: 'Copy',
+                action: () => {
+                    this._callback(this._label.text);
+                }
+            }
+        ];
+
+        if (this._retryCallback) {
+            buttons.push({
+                label: 'Regenerate',
+                action: () => {
+                    this._retryCallback();
+                },
+                key: Clutter.KEY_r,
+            });
+        }
+
+        buttons.push({
+            label: 'Close',
+            action: () => this.close(),
+            key: Clutter.KEY_Escape,
+        });
+
+        this.setButtons(buttons);
+    }
+
+    updateText(text) {
+        if (this._destroyed || !this._label) return;
+        this._label.text = text;
+    }
+});
 
 export default class AIAssistantExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
-        
-        // Setup top panel indicator
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name, false);
-        let icon = new St.Icon({
+        this._icon = new St.Icon({
             icon_name: 'accessories-text-editor-symbolic',
             style_class: 'system-status-icon',
         });
-        this._indicator.add_child(icon);
+        this._indicator.add_child(this._icon);
         this._indicator.connect('button-press-event', (actor, event) => {
             if (event.get_button() === Clutter.BUTTON_PRIMARY) {
                 this._processClipboard();
@@ -27,9 +111,13 @@ export default class AIAssistantExtension extends Extension {
             }
             return Clutter.EVENT_PROPAGATE;
         });
+
+        this._buildMenu();
+        this._settings.connect('changed::presets-json', () => this._buildMenu());
+        this._settings.connect('changed::active-preset-index', () => this._buildMenu());
+
         Main.panel.addToStatusArea(this.uuid, this._indicator);
 
-        // Setup global shortcut
         Main.wm.addKeybinding(
             'shortcut',
             this._settings,
@@ -47,117 +135,190 @@ export default class AIAssistantExtension extends Extension {
             this._indicator.destroy();
             this._indicator = null;
         }
-
         Main.wm.removeKeybinding('shortcut');
         this._settings = null;
         this._httpSession = null;
     }
 
-    _processClipboard() {
-        // Read text from clipboard
+    _buildMenu() {
+        this._indicator.menu.removeAll();
+        const presets = this._getPresets();
+        const activeIndex = this._settings.get_int('active-preset-index');
+
+        presets.forEach((preset, index) => {
+            const isActive = index === activeIndex;
+            const item = new PopupMenu.PopupImageMenuItem(
+                preset.name, 
+                isActive ? 'emblem-favorite-symbolic' : 'star-new-symbolic'
+            );
+            item.connect('activate', () => {
+                this._processClipboard(preset);
+            });
+            if (isActive) item.setOrnament(PopupMenu.Ornament.CHECK);
+            this._indicator.menu.addMenuItem(item);
+        });
+
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._indicator.menu.addAction('Preferences...', () => this.openPreferences());
+    }
+
+    _getPresets() {
+        try {
+            const presets = JSON.parse(this._settings.get_string('presets-json'));
+            if (Array.isArray(presets) && presets.length > 0) return presets;
+        } catch (e) {}
+        return [{ name: 'Default', instruction: this._settings.get_string('custom-instruction') }];
+    }
+
+    _processClipboard(specificPreset = null) {
+        const usePrimary = this._settings.get_boolean('use-primary-selection');
         const clipboard = St.Clipboard.get_default();
-        clipboard.get_text(St.ClipboardType.CLIPBOARD, (clipboard, text) => {
+        if (usePrimary) {
+            clipboard.get_text(St.ClipboardType.PRIMARY, (cb, text) => {
+                if (text && text.trim() !== '') this._callOpenAI(text, specificPreset);
+                else this._readStandardClipboard(specificPreset);
+            });
+        } else {
+            this._readStandardClipboard(specificPreset);
+        }
+    }
+
+    _readStandardClipboard(specificPreset = null) {
+        const clipboard = St.Clipboard.get_default();
+        clipboard.get_text(St.ClipboardType.CLIPBOARD, (cb, text) => {
             if (!text || text.trim() === '') {
-                Main.notify('AI Assistant', 'No text found in clipboard. Please copy some text first.');
+                Main.notify('AI Assistant', 'No text found in selection or clipboard.');
                 return;
             }
-
-            this._callOpenAI(text);
+            this._callOpenAI(text, specificPreset);
         });
     }
 
-    async _callOpenAI(text) {
-        let apiKey = this._settings.get_string('api-key');
-        const apiProvider = this._settings.get_string('api-provider');
-        
-        if (!apiKey && apiProvider !== 'ollama') {
-            Main.notify('AI Assistant Error', `API Key is missing for ${apiProvider}. Please set it in preferences.`);
-            return;
-        }
-
-        const baseUrl = this._settings.get_string('api-base-url') || 'https://api.openai.com/v1';
-        let customUrl = baseUrl;
-        if (!customUrl.endsWith('/chat/completions')) {
-            if (customUrl.endsWith('/')) {
-                customUrl += 'chat/completions';
-            } else {
-                customUrl += '/chat/completions';
-            }
-        }
-
-        const model = this._settings.get_string('api-model') || 'gpt-4o-mini';
-        const customInstruction = this._settings.get_string('custom-instruction') || 'Fix grammar.';
-        const blockedWordsStr = this._settings.get_string('blocked-words') || '';
-        const blockedWords = blockedWordsStr.split(',').map(w => w.trim()).filter(w => w);
-        const temperature = this._settings.get_double('temperature');
-        const maxTokens = this._settings.get_int('max-tokens');
-
-        let systemPrompt = customInstruction;
-        if (blockedWords.length > 0) {
-            systemPrompt += `\n\nCRITICAL RULE: Do NOT use the following words under any circumstances: ${blockedWords.join(', ')}`;
-        }
-
-        Main.notify('AI Assistant', 'Processing text...');
-
-        const requestBody = {
-            model: model,
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: text }
-            ],
-            temperature: temperature,
-            max_tokens: maxTokens > 0 ? maxTokens : undefined,
-        };
-
-        const message = Soup.Message.new('POST', customUrl);
-        if (apiProvider !== 'ollama' || apiKey) {
-            message.request_headers.append('Authorization', `Bearer ${apiKey}`);
-        }
-        message.request_headers.append('Content-Type', 'application/json');
-
-        const extraHeadersStr = this._settings.get_string('api-extra-headers');
-        if (extraHeadersStr) {
-            try {
-                const extraHeaders = JSON.parse(extraHeadersStr);
-                for (let key in extraHeaders) {
-                    message.request_headers.append(key, extraHeaders[key]);
-                }
-            } catch (e) {
-                console.error("AI Assistant: Failed to parse extra headers", e);
-            }
-        }
-        
-        const encoder = new TextEncoder();
-        const bytes = new GLib.Bytes(encoder.encode(JSON.stringify(requestBody)));
-        message.set_request_body_from_bytes('application/json', bytes);
-
+    async _callOpenAI(text, specificPreset = null) {
+        let dialog;
         try {
-            const bytesReceived = await this._httpSession.send_and_read_async(message, GLib.PRIORITY_DEFAULT, null);
-            const decoder = new TextDecoder('utf-8');
-            const responseStr = decoder.decode(bytesReceived.get_data());
+            const apiKey = this._settings.get_string('api-key');
+            const apiProvider = this._settings.get_string('api-provider');
+            if (!apiKey && apiProvider !== 'ollama') {
+                Main.notify('AI Assistant Error', `API Key is missing for ${apiProvider}.`);
+                return;
+            }
+
+            let customUrl = this._settings.get_string('api-base-url') || 'https://api.openai.com/v1';
+            if (!customUrl.endsWith('/chat/completions')) {
+                customUrl += customUrl.endsWith('/') ? 'chat/completions' : '/chat/completions';
+            }
+
+            const model = this._settings.get_string('api-model') || 'gpt-4o-mini';
+            const presets = this._getPresets();
+            const activeIndex = this._settings.get_int('active-preset-index');
+            const instruction = specificPreset ? specificPreset.instruction : (presets[activeIndex]?.instruction || this._settings.get_string('custom-instruction'));
+
+            const blockedWordsStr = this._settings.get_string('blocked-words') || '';
+            const blockedWords = blockedWordsStr.split(',').map(w => w.trim()).filter(w => w);
+            let systemPrompt = instruction;
+            if (blockedWords.length > 0) {
+                systemPrompt += `\n\nCRITICAL RULE: Do NOT use the following words: ${blockedWords.join(', ')}`;
+            }
+
+            this._icon.icon_name = 'view-refresh-symbolic';
+            this._indicator.add_style_class_name('busy');
             
-            if (message.status_code === 200) {
-                const responseData = JSON.parse(responseStr);
-                const resultText = responseData?.choices?.[0]?.message?.content;
-
-                if (!resultText) {
-                    Main.notify('AI Assistant Error', 'Unexpected response format from API.');
-                    console.error('AIAssistant: Unexpected response:', responseStr);
-                    return;
-                }
-
-                // Write back to clipboard
-                const clipboard = St.Clipboard.get_default();
-                clipboard.set_text(St.ClipboardType.CLIPBOARD, resultText);
-                
-                Main.notify('AI Assistant', 'Done! Text copied to clipboard. (Ctrl+V to paste)');
+            const showDialog = this._settings.get_boolean('show-result-window');
+            if (showDialog) {
+                dialog = new ResultDialog(text, (result) => {
+                    const clipboard = St.Clipboard.get_default();
+                    clipboard.set_text(St.ClipboardType.CLIPBOARD, result);
+                }, () => this._callOpenAI(text, specificPreset));
+                dialog.open();
+                dialog.updateText('Thinking...');
             } else {
-                Main.notify('AI Assistant Error', `API Error: ${message.status_code}`);
-                console.error(`AIAssistant HTTP Error: ${responseStr}`);
+                Main.notify('AI Assistant', 'Processing request...');
+            }
+
+            const requestBody = {
+                model: model,
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
+                temperature: this._settings.get_double('temperature'),
+                max_tokens: this._settings.get_int('max-tokens') || undefined,
+                stream: true
+            };
+
+            const message = Soup.Message.new('POST', customUrl);
+            if (apiProvider !== 'ollama' || apiKey) message.request_headers.append('Authorization', `Bearer ${apiKey}`);
+            message.request_headers.append('Content-Type', 'application/json');
+
+            const extraHeadersStr = this._settings.get_string('api-extra-headers');
+            if (extraHeadersStr) {
+                try {
+                    const extraHeaders = JSON.parse(extraHeadersStr);
+                    for (const [k, v] of Object.entries(extraHeaders)) message.request_headers.append(k, v);
+                } catch (e) {}
+            }
+            message.request_headers.append('HTTP-Referer', 'https://github.com/nichsedge/ai-assistant-gnome-extension');
+            message.request_headers.append('X-OpenRouter-Title', 'GNOME AI Assistant');
+
+            const bytes = new GLib.Bytes(new TextEncoder().encode(JSON.stringify(requestBody)));
+            message.set_request_body_from_bytes('application/json', bytes);
+
+            const inputStream = await new Promise((resolve, reject) => {
+                this._httpSession.send_async(message, GLib.PRIORITY_DEFAULT, null, (s, res) => {
+                    try { resolve(s.send_finish(res)); } catch (e) { reject(e); }
+                });
+            });
+
+            if (message.status_code !== 200) {
+                const errBytes = message.response_body.flatten().get_data();
+                const errText = `Error ${message.status_code}: ${new TextDecoder().decode(errBytes)}`;
+                if (dialog) dialog.updateText(errText);
+                else Main.notify('AI Assistant Error', errText);
+                this._resetUI();
+                return;
+            }
+
+            let fullText = '';
+            const decoder = new TextDecoder('utf-8');
+            const dataInputStream = new Gio.DataInputStream({ base_stream: inputStream });
+
+            while (!dialog || !dialog._destroyed) {
+                const [line, len] = await new Promise((resolve, reject) => {
+                    dataInputStream.read_line_async(GLib.PRIORITY_DEFAULT, null, (s, res) => {
+                        try { resolve(s.read_line_finish(res)); } catch (e) { reject(e); }
+                    });
+                });
+                if (line === null) break;
+
+                const lineStr = decoder.decode(line).trim();
+                if (lineStr.startsWith('data: ')) {
+                    const data = lineStr.slice(6);
+                    if (data === '[DONE]') break;
+                    try {
+                        const json = JSON.parse(data);
+                        const content = json.choices?.[0]?.delta?.content || '';
+                        fullText += content;
+                        if (dialog) dialog.updateText(fullText);
+                    } catch (e) {}
+                }
+            }
+            this._resetUI();
+            if (fullText) {
+                const clipboard = St.Clipboard.get_default();
+                clipboard.set_text(St.ClipboardType.CLIPBOARD, fullText);
+                if (!dialog) Main.notify('AI Assistant', 'Result copied to clipboard!');
+            } else if (!dialog || !dialog._destroyed) {
+                const emptyMsg = 'Received empty response from API.';
+                if (dialog) dialog.updateText(emptyMsg);
+                else Main.notify('AI Assistant Error', emptyMsg);
             }
         } catch (e) {
-            Main.notify('AI Assistant Error', `Failed to connect: ${e.message}`);
-            console.error(e);
+            this._resetUI();
+            if (dialog && !dialog._destroyed) dialog.updateText(`Error: ${e.message}`);
+            else Main.notify('AI Assistant Error', e.message);
         }
+    }
+
+    _resetUI() {
+        this._icon.icon_name = 'accessories-text-editor-symbolic';
+        this._indicator.remove_style_class_name('busy');
     }
 }

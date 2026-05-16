@@ -1,0 +1,31 @@
+.ai-assistant-dialog-content {
+    padding: 24px;
+    spacing: 16px;
+    min-width: 500px;
+    max-width: 800px;
+}
+
+.ai-assistant-dialog-title {
+    font-size: 1.4em;
+    font-weight: bold;
+    color: #ffffff;
+    margin-bottom: 8px;
+}
+
+.ai-assistant-dialog-scroll {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ai-assistant-dialog-text {
+    font-family: 'Source Code Pro', 'DejaVu Sans Mono', monospace;
+    font-size: 1.1em;
+    line-height: 1.5;
+    color: #eeeeee;
+}
+
+.busy {
+    color: #3584e4;
+}

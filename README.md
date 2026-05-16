@@ -4,12 +4,13 @@ A customizable GNOME Shell extension that processes clipboard text using AI (Ope
 
 ## Features
 
-- **Clipboard Processing**: Select text, copy it to your clipboard, and trigger the extension to automatically process the text with AI.
-- **Multiple AI Providers**: Supports OpenAI out of the box, as well as local AI models via Ollama.
-- **Custom Instructions**: Define exactly how you want the AI to process your text (e.g., "Fix grammar", "Translate to English", "Summarize").
+- **Streaming Responses**: See AI results in real-time as they are generated.
+- **Premium Result Viewer**: A dedicated window to review, edit, and copy AI results before using them.
+- **Multi-preset Management**: Create and switch between multiple system prompts for different tasks.
+- **Multi-line Prompt Editing**: Write complex, multi-line instructions for the AI in a user-friendly interface.
 - **Word Blocking**: Specify a list of words that the AI is forbidden strictly from using in its response.
-- **Global Shortcut**: Process text quickly without leaving your current application by using a configurable keyboard shortcut.
-- **Top Bar Indicator**: Easy access to the extension's status and manual trigger through the GNOME top panel.
+- **Multiple AI Providers**: Supports OpenAI, OpenRouter, and local models via Ollama.
+- **Global Shortcut**: Process text quickly without leaving your current application.
 
 ## Installation
 
@@ -23,21 +24,19 @@ A customizable GNOME Shell extension that processes clipboard text using AI (Ope
    ```bash
    git clone https://github.com/nichsedge/ai-assistant-gnome-extension.git
    ```
-2. Move the extension folder to your local GNOME extensions directory. The folder name must match the extension's UUID (`ai-assistant@al-projects.gnome.org`):
+2. Run the provided install script:
    ```bash
-   mv ai-assistant-gnome-extension ~/.local/share/gnome-shell/extensions/ai-assistant@al-projects.gnome.org
+   ./install.sh
    ```
-3. Restart GNOME Shell (Press `Alt+F2`, type `r`, and press `Enter`. On Wayland, you may need to log out and log back in).
+3. Restart GNOME Shell (Press `Alt+F2`, type `r`, and press `Enter`. On Wayland, log out and log back in).
 4. Enable the extension using the [Extension Manager](https://flathub.org/apps/com.mattjakeman.ExtensionManager) or the built-in Extensions app.
 
 ## Usage
 
-1. **Configure**: Open the extension's Preferences to set your API Provider, API Key, Model, Custom Instructions, and Blocked Words.
-2. **Copy Text**: Highlight any text and copy it to your clipboard (`Ctrl+C`).
-3. **Trigger AI**: 
-   - Press the global shortcut (configure in Settings -> Keyboard -> Custom Shortcuts, or within the extension preferences depending on your setup).
-   - Alternatively, click the Text Editor icon in your GNOME top panel.
-4. **Paste**: The extension will notify you when processing is complete. Paste (`Ctrl+V`) the AI-improved text!
+1. **Configure**: Open the extension's Preferences to set your API Provider, API Key, Model, and manage your Presets.
+2. **Select Text**: Highlight any text and copy it to your clipboard (`Ctrl+C`).
+3. **Trigger AI**: Press the global shortcut (default: `<Super><Shift>g`) or click the icon in your GNOME top panel.
+4. **Review & Copy**: A dialog will appear with the AI's response. Click **Copy & Close** to put the result in your clipboard!
 
 ## Support & Contributing
 
